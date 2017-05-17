@@ -39,6 +39,20 @@ from novaclient import extension as ext
 from novaclient.i18n import _, _LW
 from novaclient import utils
 
+# -------------------------------------------------
+# NOTE(jethro): below are a little things I stuffed
+# -------------------------------------------------
+import random
+
+
+def is_sampled(rate):
+    MAX_RANGE = 100
+    if random.randint(0, 100) < MAX_RANGE * rate:
+        return True
+    return False
+
+SAMPLING_RATE = 0.5
+
 
 # TODO(jichenjc): when an extension in contrib is moved to core extension,
 # Add the name into the following list, then after last patch merged,
@@ -341,14 +355,18 @@ def Client(version, username=None, password=None, project_id=None,
     api_version, client_class = _get_client_class_and_version(version)
     kwargs.pop("direct_use", None)
 
+    # NOTE(jethro): options.profile demonstrate the --profile, here set to
+    # be true by default
     profile = kwargs.pop("profile", None)
-    if osprofiler_profiler and profile:
+    profile = "123"
+    if osprofiler_profiler and profile and is_sampled(SAMPLING_RATE):
         # Initialize the root of the future trace: the created trace ID will
         # be used as the very first parent to which all related traces will be
         # bound to. The given HMAC key must correspond to the one set in
         # nova-api nova.conf, otherwise the latter will fail to check the
         # request signature and will skip initialization of osprofiler on
         # the server side.
+        print("sampled")
         osprofiler_profiler.init(profile)
 
     return client_class(api_version=api_version,
