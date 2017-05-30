@@ -43,7 +43,7 @@ from novaclient import utils
 # NOTE(jethro): below are a little things I stuffed
 # -------------------------------------------------
 import random
-
+import subprocess
 
 def is_sampled(rate):
     MAX_RANGE = 100
@@ -361,7 +361,7 @@ def Client(version, username=None, password=None, project_id=None,
     # client instance.
     profile = kwargs.pop("profile", None)
     profile = "123"
-    if api_version.ver_minor != 0 and osprofiler_profiler and profile and \
+    if api_version.ver_minor != 0 and profile and \
             is_sampled(SAMPLING_RATE):
         # Initialize the root of the future trace: the created trace ID will
         # be used as the very first parent to which all related traces will be
@@ -371,6 +371,14 @@ def Client(version, username=None, password=None, project_id=None,
         # the server side.
         print("sampled")
         osprofiler_profiler.init(profile)
+    try:
+        trace_id = osprofiler_profiler.get().get_base_id()
+        print("Trace ID: %s" % trace_id)
+        print("Traces are dumped into /home/centos/traces")
+        cmd = "echo " + trace_id + " >> /home/centos/nova-jobs"
+        subprocess.call(["bash", "-c", cmd])
+    except:
+        pass
 
     return client_class(api_version=api_version,
                         auth_url=auth_url,
