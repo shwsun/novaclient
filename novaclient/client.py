@@ -36,7 +36,9 @@ osprofiler_web = importutils.try_import("osprofiler.web")
 from novaclient import api_versions
 from novaclient import exceptions
 from novaclient import extension as ext
-from novaclient.i18n import _, _LW
+from novaclient.i18n import _
+# FIXME: is it a knows issue?
+#from novaclient.i18n import _, _LW
 from novaclient import utils
 
 # -------------------------------------------------
