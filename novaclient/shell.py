@@ -62,6 +62,11 @@ HINT_HELP_MSG = (" [hint: use '--os-compute-api-version' flag to show help "
 
 logger = logging.getLogger(__name__)
 
+# -------------------------------------------------
+# NOTE(jethro): below are a little things I stuffed
+# -------------------------------------------------
+import subprocess
+
 
 class DeprecatedAction(argparse.Action):
     """An argparse action for deprecated options.
@@ -870,10 +875,22 @@ class OpenStackComputeShell(object):
 
         args.func(self.cs, args)
 
-        if osprofiler_profiler and args.profile:
+
+        # NOTE(jethro): CL
+        #if osprofiler_profiler and args.profile:
+        #    trace_id = osprofiler_profiler.get().get_base_id()
+        #    print("To display trace use the command:\n\n"
+        #          "  osprofiler trace show --html %s " % trace_id)
+        try:
             trace_id = osprofiler_profiler.get().get_base_id()
-            print("To display trace use the command:\n\n"
-                  "  osprofiler trace show --html %s " % trace_id)
+            print("Trace ID: %s" % trace_id)
+            print("Traces are dumped into /home/centos/traces")
+            cmd = "source /root/keystonerc_admin ; osprofiler trace show" + \
+                " --dot " + trace_id + " --out " + "/home/centos/traces/" + \
+                str(trace_id) + ".dot" + " --connection-string mongodb://localhost:27017"
+            subprocess.call(["bash", "-c", cmd])
+        except:
+            pass
 
         if args.timings:
             self._dump_timings(self.times + self.cs.get_timings())
