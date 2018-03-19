@@ -1,3 +1,13 @@
+=============================================
+Unleash the potential of tracing in Openstack
+=============================================
+
+This is a fork of the python-novaclient. Changes and modifications are done to enable the ability of tracing openstack Nova component all the time, and with the sampling enforcement to control the overhead. For more information, please contact the tracing team in MOC. -- Jethro
+
+Below starts the original content of OpenStack, Novaclient (ocata)
+
+
+
 ========================
 Team and repository tags
 ========================
