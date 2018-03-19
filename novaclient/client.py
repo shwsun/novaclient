@@ -46,6 +46,21 @@ from novaclient import utils
 extensions_ignored_name = ["__init__"]
 
 
+# -------------------------------------------------
+# NOTE(jethro): below are a little things I stuffed
+# -------------------------------------------------
+import random
+import subprocess
+
+def is_sampled(rate):
+    MAX_RANGE = 100
+    if random.randint(0, 100) < MAX_RANGE * rate:
+        return True
+    return False
+
+SAMPLING_RATE = 0.2
+
+
 class SessionClient(adapter.LegacyJsonAdapter):
 
     def __init__(self, *args, **kwargs):
@@ -341,15 +356,32 @@ def Client(version, username=None, password=None, project_id=None,
     api_version, client_class = _get_client_class_and_version(version)
     kwargs.pop("direct_use", None)
 
+    # NOTE(jethro): profile demonstrate the --profile, here set to be true by
+    # default. Also note that novaclient has two client instance (one as default
+    # and one is discovered), here the sampling only work on the discovered
+    # client instance.
     profile = kwargs.pop("profile", None)
-    if osprofiler_profiler and profile:
+    #if osprofiler_profiler and profile:
+    profile = "42"
+    if api_version.ver_minor != 0 and profile and \
+            is_sampled(SAMPLING_RATE):
         # Initialize the root of the future trace: the created trace ID will
         # be used as the very first parent to which all related traces will be
         # bound to. The given HMAC key must correspond to the one set in
         # nova-api nova.conf, otherwise the latter will fail to check the
         # request signature and will skip initialization of osprofiler on
         # the server side.
+        print("sampled")
         osprofiler_profiler.init(profile)
+
+    try:
+        trace_id = osprofiler_profiler.get().get_base_id()
+        print("Trace ID: %s" % trace_id)
+        print("Traces are dumped into /home/centos/traces")
+        cmd = "echo " + trace_id + " >> /home/centos/nova-jobs"
+        subprocess.call(["bash", "-c", cmd])
+    except:
+        pass
 
     return client_class(api_version=api_version,
                         auth_url=auth_url,
