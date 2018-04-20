@@ -1,7 +1,8 @@
 # Copyright 2010 Jacob Kaplan-Moss
 # Copyright 2011 OpenStack Foundation
 # Copyright 2011 Piston Cloud Computing, Inc.
-
+# Copyright 2017-2018 Mass Open Cloud.
+#
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -30,8 +31,15 @@ from keystoneauth1 import session as ksession
 from oslo_utils import importutils
 import pkg_resources
 
-osprofiler_profiler = importutils.try_import("osprofiler.profiler")
-osprofiler_web = importutils.try_import("osprofiler.web")
+# ------------------------------------------------------------------------------
+# NOTE(jethros): osprofiler profiler is now replaced with jaeger tracer. module
+# import is done in a not-trying fashion.
+# ------------------------------------------------------------------------------
+import opentracing
+from osprofiler.profiler import jaeger_tracer as osprofiler_tracer
+from osprofiler.profiler import jaeger_middleware as osprofiler_middleware
+#osprofiler_profiler = importutils.try_import("osprofiler.profiler")
+#osprofiler_web = importutils.try_import("osprofiler.web")
 
 from novaclient import api_versions
 from novaclient import exceptions
@@ -53,11 +61,14 @@ import random
 import subprocess
 
 def is_sampled(rate):
+    """Naive probablistic sampling"""
     MAX_RANGE = 100
     if random.randint(0, 100) < MAX_RANGE * rate:
         return True
     return False
 
+
+# TODO: sampling rate should be retreived from CONF
 SAMPLING_RATE = 0.2
 
 
@@ -68,16 +79,43 @@ class SessionClient(adapter.LegacyJsonAdapter):
         self.timings = kwargs.pop('timings', False)
         self.api_version = kwargs.pop('api_version', None)
         self.api_version = self.api_version or api_versions.APIVersion()
+        self._traced = False
         super(SessionClient, self).__init__(*args, **kwargs)
 
     def request(self, url, method, **kwargs):
         kwargs.setdefault('headers', kwargs.get('headers', {}))
         api_versions.update_headers(kwargs["headers"], self.api_version)
 
-        # NOTE(dbelova): osprofiler_web.get_trace_id_headers does not add any
-        # headers in case if osprofiler is not initialized.
-        if osprofiler_web:
-            kwargs['headers'].update(osprofiler_web.get_trace_id_headers())
+        ## NOTE(dbelova): osprofiler_web.get_trace_id_headers does not add any
+        ## headers in case if osprofiler is not initialized.
+        #if osprofiler_web:
+        #    kwargs['headers'].update(osprofiler_web.get_trace_id_headers())
+
+        # ----------------------------------------------------------------------
+        # NOTE(jethros): A jaeger middleware implementation for cases where it
+        # is cross component communication.
+        # keywords: server-side tracing
+        # ----------------------------------------------------------------------
+        if osprofiler_middleware.get_span_ctx(kwargs['headers']):
+            self._traced = True
+
+        if self._traced:
+            # initialize a middleware tracer
+            tracer = osprofiler_middleware.Tracer()
+            # TODO: deal with kwargs headers
+            span_ctx = tracer.extract(opentracing.Format.HTTP_HEADERS,
+                                      kwargs['headers'])
+            new_span = tracer.start_span(
+                operation_name='novaclient-session-client',
+                references=opentracing.child_of(span_ctx))
+            # TODO: Tagging?
+            #span.set_tag('x', 'y')
+            #span.set_baggage_item('a', 'b')
+            #span.log_event('z')
+            # TODO deal with kwargs again
+            tracer.inject(new_span, opentracing.Format.HTTP_HEADERS,
+                          kwargs['headers'])
+
 
         # NOTE(jamielennox): The standard call raises errors from
         # keystoneauth1, where we need to raise the novaclient errors.
@@ -93,6 +131,13 @@ class SessionClient(adapter.LegacyJsonAdapter):
         # api_versions.check_headers(resp, self.api_version)
         if raise_exc and resp.status_code >= 400:
             raise exceptions.from_response(resp, body, url, method)
+
+        # ----------------------------------------------------------------------
+        # NOTE(jethros): span is finished when request is finished
+        # ----------------------------------------------------------------------
+        #if self._traced:
+        #    new_span.finish()
+        # TODO: the span should close after the request is finished
 
         return resp, body
 
@@ -166,11 +211,11 @@ def _construct_http_client(api_version=None,
                                      project_domain_name=project_domain_name,
                                      user_domain_id=user_domain_id,
                                      user_domain_name=user_domain_name)
-        session = ksession.Session(auth=auth,
-                                   verify=(cacert or not insecure),
-                                   timeout=timeout,
-                                   cert=cert,
-                                   user_agent=user_agent)
+            session = ksession.Session(auth=auth,
+                                       verify=(cacert or not insecure),
+                                       timeout=timeout,
+                                       cert=cert,
+                                       user_agent=user_agent)
 
     return SessionClient(api_version=api_version,
                          auth=auth,
@@ -212,7 +257,7 @@ def _discover_via_python_path():
             # NOTE(sdague): needed for python 2.x compatibility.
             if not hasattr(module_loader, 'load_module'):
                 module_loader = module_loader.find_module(name)
-            module = module_loader.load_module(name)
+                module = module_loader.load_module(name)
             if hasattr(module, 'extension_name'):
                 name = module.extension_name
 
@@ -271,22 +316,22 @@ def _check_arguments(kwargs, release, deprecated_name, right_name=None):
                           "%(release)s and its use may result in errors "
                           "in future releases. As '%(new)s' is provided, "
                           "the '%(old)s' argument will be ignored.") % {
-                    "old": deprecated_name, "release": release,
-                    "new": right_name}
+                              "old": deprecated_name, "release": release,
+                              "new": right_name}
                 kwargs.pop(deprecated_name)
             else:
                 msg = _LW("The '%(old)s' argument is deprecated in "
                           "%(release)s and its use may result in errors in "
                           "future releases. Use '%(right)s' instead.") % {
-                    "old": deprecated_name, "release": release,
-                    "right": right_name}
+                              "old": deprecated_name, "release": release,
+                              "right": right_name}
                 kwargs[right_name] = kwargs.pop(deprecated_name)
 
         else:
             msg = _LW("The '%(old)s' argument is deprecated in %(release)s "
                       "and its use may result in errors in future "
                       "releases.") % {
-                "old": deprecated_name, "release": release}
+                          "old": deprecated_name, "release": release}
             # just ignore it
             kwargs.pop(deprecated_name)
 
@@ -327,24 +372,24 @@ def Client(version, username=None, password=None, project_id=None,
         # os_cache is not a fully compatible with no_cache, so we need to
         # apply this custom processing
         kwargs["os_cache"] = not kwargs["os_cache"]
-    _check_arguments(kwargs, "Ocata", "bypass_url",
-                     right_name="endpoint_override")
-    _check_arguments(kwargs, "Ocata", "api_key", right_name="password")
-    # NOTE(andreykurilin): OpenStack projects use two variables with one
-    #   meaning: 'endpoint_type' and 'interface'. 'endpoint_type' is an old
-    #   name which was used by most OpenStack clients. Later it was replaced by
-    #  'interface' in keystone and later some other clients switched to new
-    #   variable name too. In case of novaclient, there is no need to switch to
-    #  'interface' variable name due too several reasons:
-    #     - novaclient uses 'endpoint_type' variable name long time ago and
-    #       there is no real reasons to switch to new name;
-    #     - 'interface' argument is used in several shell subcommands
-    #       (for example in `nova floating-ip-bulk-create`), so we will need to
-    #       modify these subcommands to not conflict with global flag
-    #       'interface'
-    #   Actually, novaclient did not accept 'interface' before, but since we
-    #   allow additional arguments(kwargs), someone can use this variable name
-    #   and face issue about unexpected behavior.
+        _check_arguments(kwargs, "Ocata", "bypass_url",
+                         right_name="endpoint_override")
+        _check_arguments(kwargs, "Ocata", "api_key", right_name="password")
+        # NOTE(andreykurilin): OpenStack projects use two variables with one
+        #   meaning: 'endpoint_type' and 'interface'. 'endpoint_type' is an old
+        #   name which was used by most OpenStack clients. Later it was replaced by
+        #  'interface' in keystone and later some other clients switched to new
+        #   variable name too. In case of novaclient, there is no need to switch to
+        #  'interface' variable name due too several reasons:
+        #     - novaclient uses 'endpoint_type' variable name long time ago and
+        #       there is no real reasons to switch to new name;
+        #     - 'interface' argument is used in several shell subcommands
+        #       (for example in `nova floating-ip-bulk-create`), so we will need to
+        #       modify these subcommands to not conflict with global flag
+        #       'interface'
+        #   Actually, novaclient did not accept 'interface' before, but since we
+        #   allow additional arguments(kwargs), someone can use this variable name
+        #   and face issue about unexpected behavior.
     _check_arguments(kwargs, "Ocata", "interface", right_name="endpoint_type")
     _check_arguments(kwargs, "Ocata", "tenant_name", right_name="project_name")
     _check_arguments(kwargs, "Ocata", "tenant_id", right_name="project_id")
@@ -356,33 +401,20 @@ def Client(version, username=None, password=None, project_id=None,
     api_version, client_class = _get_client_class_and_version(version)
     kwargs.pop("direct_use", None)
 
-    # NOTE(jethro): profile demonstrate the --profile, here set to be true by
-    # default. Also note that novaclient has two client instance (one as default
-    # and one is discovered), here the sampling only work on the discovered
-    # client instance.
-    profile = kwargs.pop("profile", None)
-    #if osprofiler_profiler and profile:
-    profile = "42"
-    if api_version.ver_minor != 0 and profile and \
-            is_sampled(SAMPLING_RATE):
-        # Initialize the root of the future trace: the created trace ID will
-        # be used as the very first parent to which all related traces will be
-        # bound to. The given HMAC key must correspond to the one set in
-        # nova-api nova.conf, otherwise the latter will fail to check the
-        # request signature and will skip initialization of osprofiler on
-        # the server side.
-        print("sampled")
-        osprofiler_profiler.init(profile)
+    # --------------------------------------------------------------------------
+    # NOTE(jethros): 
+    # --------------------------------------------------------------------------
+    # NOTE: Cmd passed in param is bogus now.
+    #profile = kwargs.pop("profile", None)
+    if api_version.ver_minor != 0 and is_sampled(SAMPLING_RATE):
+        # request is sampled
+        tracer = osprofiler_tracer.Tracer()
+        span = tracer.start_span(operation_name="novaclient-client")
+        # TODO(jethros): inject span to the headers
+        tracer.inject(span, opentracing.Format.HTTP_HEADERS, request.headers)
+        # TODO(jethros): close the span
 
-    try:
-        trace_id = osprofiler_profiler.get().get_base_id()
-        print("Trace ID: %s" % trace_id)
-        print("Traces are dumped into /home/centos/traces")
-        cmd = "echo " + trace_id + " >> /home/centos/nova-jobs"
-        subprocess.call(["bash", "-c", cmd])
-    except:
-        pass
-
+    
     return client_class(api_version=api_version,
                         auth_url=auth_url,
                         direct_use=False,
