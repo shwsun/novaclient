@@ -60,6 +60,7 @@ extensions_ignored_name = ["__init__"]
 import random
 import subprocess
 
+
 def is_sampled(rate):
     """Naive probablistic sampling"""
     MAX_RANGE = 100
@@ -73,6 +74,7 @@ SAMPLING_RATE = 0.2
 
 
 class SessionClient(adapter.LegacyJsonAdapter):
+    """Keystone session client"""
 
     def __init__(self, *args, **kwargs):
         self.times = []
@@ -94,17 +96,20 @@ class SessionClient(adapter.LegacyJsonAdapter):
         # ----------------------------------------------------------------------
         # NOTE(jethros): A jaeger middleware implementation for cases where it
         # is cross component communication.
+        #
         # keywords: server-side tracing
         # ----------------------------------------------------------------------
+        # FIXME: how does opentracing propagate tracing info?
         if osprofiler_middleware.get_span_ctx(kwargs['headers']):
             self._traced = True
 
         if self._traced:
+            headers = kwargs['headers']
             # initialize a middleware tracer
             tracer = osprofiler_middleware.Tracer()
-            # TODO: deal with kwargs headers
+            # TODO: extract() -- deal with kwargs headers
             span_ctx = tracer.extract(opentracing.Format.HTTP_HEADERS,
-                                      kwargs['headers'])
+                                      headers)
             new_span = tracer.start_span(
                 operation_name='novaclient-session-client',
                 references=opentracing.child_of(span_ctx))
@@ -112,10 +117,10 @@ class SessionClient(adapter.LegacyJsonAdapter):
             #span.set_tag('x', 'y')
             #span.set_baggage_item('a', 'b')
             #span.log_event('z')
-            # TODO deal with kwargs again
+            # TODO: inject -- deal with kwargs again
             tracer.inject(new_span, opentracing.Format.HTTP_HEADERS,
-                          kwargs['headers'])
-
+                          headers)
+            kwargs['headers'].update(headers)
 
         # NOTE(jamielennox): The standard call raises errors from
         # keystoneauth1, where we need to raise the novaclient errors.
@@ -135,9 +140,8 @@ class SessionClient(adapter.LegacyJsonAdapter):
         # ----------------------------------------------------------------------
         # NOTE(jethros): span is finished when request is finished
         # ----------------------------------------------------------------------
-        #if self._traced:
-        #    new_span.finish()
-        # TODO: the span should close after the request is finished
+        if self._traced:
+            new_span.finish()
 
         return resp, body
 
@@ -402,21 +406,25 @@ def Client(version, username=None, password=None, project_id=None,
     kwargs.pop("direct_use", None)
 
     # --------------------------------------------------------------------------
-    # NOTE(jethros): 
+    # NOTE(jethros): defer or with
     # --------------------------------------------------------------------------
+    # FIXME: sampling decisions?
     # NOTE: Cmd passed in param is bogus now.
     #profile = kwargs.pop("profile", None)
     if api_version.ver_minor != 0 and is_sampled(SAMPLING_RATE):
+        # FIXME: can I set headers here?
+        kwargs.setdefault('headers', kwargs.get('headers', {}))
+        headers = kwargs['headers']
         # request is sampled
         tracer = osprofiler_tracer.Tracer()
-        span = tracer.start_span(operation_name="novaclient-client")
-        # TODO(jethros): inject span to the headers
-        tracer.inject(span, opentracing.Format.HTTP_HEADERS, request.headers)
-        # TODO(jethros): close the span
-
-    
-    return client_class(api_version=api_version,
-                        auth_url=auth_url,
-                        direct_use=False,
-                        username=username,
-                        **kwargs)
+        # NOTE(jethros): Since there is no way to know when the Client will
+        # finish we will have to *defer* the span.finish.
+        with tracer.start_span(operation_name="novaclient-client") as span:
+            # inject headers
+            tracer.inject(span, opentracing.Format.HTTP_HEADERS, headers)
+            kwargs['headers'].update(headers)
+            return client_class(api_version=api_version, auth_url=auth_url,
+                                direct_use=False, username=username, **kwargs)
+    else:
+        return client_class(api_version=api_version, auth_url=auth_url,
+                            direct_use=False, username=username, **kwargs)
