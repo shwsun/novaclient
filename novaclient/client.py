@@ -36,7 +36,7 @@ import pkg_resources
 # import is done in a not-trying fashion.
 # ------------------------------------------------------------------------------
 from opentracing.propagation import Format
-from opentracing_instrumentation import get_current_span, span_in_context
+#from opentracing_instrumentation import get_current_span, span_in_context
 from osprofiler.profiler import jaeger_tracer as osprofiler_tracer
 from osprofiler.profiler import jaeger_middleware as osprofiler_middleware
 #osprofiler_profiler = importutils.try_import("osprofiler.profiler")
@@ -77,7 +77,7 @@ class SessionClient(adapter.LegacyJsonAdapter):
 
         # ----------------------------------------------------------------------
         # NOTE(jethros): A jaeger middleware implementation for cases where it
-        # is cross component communication.
+        # is cross component communication to Keystone.
         #
         # keywords: server-side tracing
         # ----------------------------------------------------------------------
@@ -92,8 +92,7 @@ class SessionClient(adapter.LegacyJsonAdapter):
             # TODO: extract() -- deal with kwargs headers
             span_ctx = tracer.extract(Format.HTTP_HEADERS, headers)
             new_span = tracer.start_span(
-                operation_name='novaclient-session-client',
-                child_of(span_ctx))
+                operation_name='novaclient-session-client', child_of(span_ctx))
             # TODO: Tagging?
             #span.set_tag('x', 'y')
             #span.set_baggage_item('a', 'b')
@@ -118,7 +117,7 @@ class SessionClient(adapter.LegacyJsonAdapter):
             raise exceptions.from_response(resp, body, url, method)
 
         # ----------------------------------------------------------------------
-        # NOTE(jethros): span is finished when request is finished
+        # NOTE(jethros): span is finished when request is finished.
         # ----------------------------------------------------------------------
         if self._traced:
             new_span.finish()
@@ -386,7 +385,7 @@ def Client(version, username=None, password=None, project_id=None,
     kwargs.pop("direct_use", None)
 
     # --------------------------------------------------------------------------
-    # NOTE(jethros): 
+    # NOTE(jethros):
     # --------------------------------------------------------------------------
     # FIXME: sampling decisions?
     # NOTE: Cmd passed in param is bogus now.
