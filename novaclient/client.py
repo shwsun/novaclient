@@ -82,8 +82,9 @@ class SessionClient(adapter.LegacyJsonAdapter):
         # keywords: server-side tracing
         # ----------------------------------------------------------------------
         # initialize a middleware tracer
-        tracer = osprofiler_middleware.Tracer()
+        tracer = osprofiler_middleware()
         if tracer.extract(Format.HTTP_HEADERS, kwargs['headers']):
+            # TODO logging
             # use tracer.extract to determine if the request is traced
             self._traced = True
 
@@ -394,7 +395,7 @@ def Client(version, username=None, password=None, project_id=None,
         # FIXME: can I set headers here?
         kwargs.setdefault('headers', kwargs.get('headers', {}))
         headers = kwargs['headers']
-        tracer = osprofiler_tracer.Tracer()  # request is sampled
+        tracer = osprofiler_tracer()  # request is sampled
         # NOTE(jethros): Since there is no way to know when the Client will
         # finish we will have to *defer* the span.finish with *with*
         with tracer.start_span(operation_name="novaclient-client") as span:
