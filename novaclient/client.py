@@ -36,11 +36,11 @@ import pkg_resources
 # import is done in a not-trying fashion.
 # ------------------------------------------------------------------------------
 from opentracing.propagation import Format
-#from opentracing_instrumentation import get_current_span, span_in_context
+# from opentracing_instrumentation import get_current_span, span_in_context
 from osprofiler.profiler import jaeger_tracer as osprofiler_tracer
 from osprofiler.profiler import jaeger_middleware as osprofiler_middleware
-#osprofiler_profiler = importutils.try_import("osprofiler.profiler")
-#osprofiler_web = importutils.try_import("osprofiler.web")
+# osprofiler_profiler = importutils.try_import("osprofiler.profiler")
+# osprofiler_web = importutils.try_import("osprofiler.web")
 
 from novaclient import api_versions
 from novaclient import exceptions
@@ -93,11 +93,11 @@ class SessionClient(adapter.LegacyJsonAdapter):
             # TODO: extract() -- deal with kwargs headers
             span_ctx = tracer.extract(Format.HTTP_HEADERS, headers)
             new_span = tracer.start_span(
-                operation_name='novaclient-session-client', child_of(span_ctx))
+                operation_name='novaclient-session-client', child_of=span_ctx)
             # TODO: Tagging?
-            #span.set_tag('x', 'y')
-            #span.set_baggage_item('a', 'b')
-            #span.log_event('z')
+            # span.set_tag('x', 'y')
+            # span.set_baggage_item('a', 'b')
+            # span.log_event('z')
             # TODO: inject -- deal with kwargs again
             tracer.inject(new_span, Format.HTTP_HEADERS, headers)
             kwargs['headers'].update(headers)
