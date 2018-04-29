@@ -378,7 +378,7 @@ def Client(version, username=None, password=None, project_id=None,
         trace_id = osprofiler_profiler.get().get_base_id()
         print("Trace ID: %s" % trace_id)
         print("Traces are dumped into /home/centos/traces")
-        cmd = "echo " + trace_id + " >> /home/centos/nova-jobs"
+        cmd = "echo " + trace_id + " >> /home/stack/nova-jobs"
         subprocess.call(["bash", "-c", cmd])
     except:
         pass
